@@ -1,37 +1,31 @@
-enum NumberType {
+#[derive(Debug, PartialEq, PartialOrd)]
+enum Number {
     Integer(i64),
     UnsingedInteger(u64),
     Float(f64),
 }
 
-struct Number {
-    value: NumberType,
-}
-
 impl Number {
     fn parse(sequence: &String) -> Option<Self> {
-        let value = if let Ok(integer) = sequence.parse::<u64>() {
-            Some(NumberType::UnsingedInteger(integer))
+        if let Ok(integer) = sequence.parse::<u64>() {
+            Some(Number::UnsingedInteger(integer))
         } else if let Ok(integer) = sequence.parse::<i64>() {
-            Some(NumberType::Integer(integer))
+            Some(Number::Integer(integer))
         } else if let Ok(float) = sequence.parse::<f64>() {
             if float.fract() == 0.0 && float >= u64::MIN as f64 && float <= u64::MAX as f64 {
-                Some(NumberType::UnsingedInteger(float as u64))
+                Some(Number::UnsingedInteger(float as u64))
             } else if float.fract() == 0.0 && float >= i64::MIN as f64 && float <= i64::MAX as f64 {
-                Some(NumberType::Integer(float as i64))
+                Some(Number::Integer(float as i64))
             } else {
-                Some(NumberType::Float(float))
+                Some(Number::Float(float))
             }
         } else {
             None
-        };
-        if let Some(value) = value {
-            return Some(Self { value });
         }
-        None
     }
 }
 
+#[derive(Debug, PartialEq, PartialOrd)]
 enum TokenType {
     BeginArray,
     EndArray,
@@ -51,13 +45,11 @@ enum TokenType {
     // Pass by reference? -> Learn lifetime
     String(String),
 
-    EndOfFile,
     Invalid,
 }
 
-impl TokenType {}
-
-struct Token {
+#[derive(Debug, PartialEq, PartialOrd)]
+pub struct Token {
     token_type: TokenType,
     value: String,
     line: usize,
@@ -77,17 +69,17 @@ impl Token {
     }
 }
 
-struct Lexer {
+pub struct Lexer {
     input: String,
     character: char,
     position: usize,
     line: usize,
 }
 
-const EOF: char = '0';
+const EOF: char = '\u{0}';
 
 impl Lexer {
-    fn new(input: String) -> Self {
+    pub fn new(input: String) -> Self {
         let position: usize = 0;
         let character = input.chars().nth(0).unwrap();
         Self {
@@ -100,9 +92,9 @@ impl Lexer {
 
     fn read_char(&mut self) {
         let next_position = self.position + 1;
-        let slice = self.input.get(self.position..next_position);
-        if let Some(slice) = slice {
-            self.character = slice.chars().nth(0).unwrap();
+        let next_character = self.input.chars().nth(next_position);
+        if let Some(next_character) = next_character {
+            self.character = next_character;
         } else {
             self.character = EOF;
         };
@@ -179,8 +171,12 @@ impl Lexer {
         let start = self.position;
         let mut sequence = String::new();
         loop {
-            let previous_character = sequence.chars().nth(sequence.len() - 1).unwrap_or_default();
-            if sequence.len() >= 1 && self.character == '"' && previous_character != '\\' {
+            if sequence.len() >= 1
+                && self.character == '"'
+                && sequence.chars().nth(sequence.len() - 1).unwrap_or_default() != '\\'
+            {
+                sequence.push(self.character);
+                self.read_char();
                 break;
             }
             sequence.push(self.character);
@@ -210,7 +206,7 @@ impl Iterator for Lexer {
             '}' => Token::from_lexer(TokenType::EndObject, &self),
             ':' => Token::from_lexer(TokenType::NameSeparator, &self),
             ',' => Token::from_lexer(TokenType::ValueSeparator, &self),
-            EOF => Token::from_lexer(TokenType::EndOfFile, &self),
+            EOF => return None,
             '"' => self.read_string(),
             _ => {
                 if is_letter(self.character) {
@@ -240,4 +236,63 @@ fn is_number_character(character: char) -> bool {
         || character == '.'
         || character == 'e'
         || character == 'E'
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_case::test_case;
+
+    fn collect_tokens(json: &str) -> Vec<Token> {
+        let lexer = Lexer::new(String::from(json));
+        let tokens: Vec<Token> = lexer.collect();
+        tokens
+    }
+
+    #[test_case("-2073", -2073 ; "Simple example")]
+    #[test_case("-2e2", -200 ; "Exponent example")]
+    #[test_case("-2E2", -200 ; "Exponent upper case example")]
+    fn integer_token(json: &str, expected_number: i64) {
+        let tokens = collect_tokens(json);
+        assert_eq!(
+            TokenType::Number(Number::Integer(expected_number)),
+            tokens[0].token_type
+        )
+    }
+
+    #[test_case("2073", 2073 ; "Simple example")]
+    #[test_case("2e2", 200 ; "Exponent example")]
+    #[test_case("2E2", 200 ; "Exponent upper case example")]
+    fn unsinged_integer_token(json: &str, expected_number: u64) {
+        let tokens = collect_tokens(json);
+        assert_eq!(
+            TokenType::Number(Number::UnsingedInteger(expected_number)),
+            tokens[0].token_type
+        )
+    }
+
+    #[test]
+    fn object_tokens() {
+        let tokens = collect_tokens("{ \"key\": \"value\" }");
+        assert_eq!(
+            Token {
+                token_type: TokenType::BeginObject,
+                value: String::from("{"),
+                line: 0,
+                start: 0,
+                end: 1
+            },
+            tokens[0]
+        );
+        assert_eq!(
+            Token {
+                token_type: TokenType::EndObject,
+                value: String::from("}"),
+                line: 0,
+                start: 17,
+                end: 18
+            },
+            tokens[tokens.len() - 1]
+        )
+    }
 }
