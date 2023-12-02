@@ -40,7 +40,6 @@ enum TokenType {
     True,
     Null,
 
-    // Good type?
     Number(Number),
     // Pass by reference? -> Learn lifetime
     String(String),
@@ -57,28 +56,27 @@ pub struct Token {
     end: usize,
 }
 
-impl Token {
-    fn from_lexer(token_type: TokenType, lexer: &Lexer) -> Self {
-        Self {
-            token_type,
-            value: lexer.character.into(),
-            line: lexer.line,
-            start: lexer.position,
-            end: lexer.position + 1,
-        }
-    }
-}
+const EOF: char = '\u{0}';
 
-pub struct Lexer {
+const ESCAPED_CHARACTERS: [(char, char); 8] = [
+    ('"', '"'),
+    ('\\', '\\'),
+    ('/', '/'),
+    ('b', '\u{8}'),
+    ('f', '\u{c}'),
+    ('n', '\n'),
+    ('r', '\r'),
+    ('t', '\t'),
+];
+
+pub struct Tokenizer {
     input: String,
     character: char,
     position: usize,
     line: usize,
 }
 
-const EOF: char = '\u{0}';
-
-impl Lexer {
+impl Tokenizer {
     pub fn new(input: String) -> Self {
         let position: usize = 0;
         let character = input.chars().nth(0).unwrap();
@@ -165,22 +163,49 @@ impl Lexer {
         }
     }
 
-    // TODO: does not handle any unicode escape sequences or escaped characters
-    // QUESTION: Are control characters already handled when reading files?
+    // TODO: Handle unicode escape sequences
     fn read_string(&mut self) -> Token {
         let start = self.position;
         let mut sequence = String::new();
         loop {
-            if sequence.len() >= 1
-                && self.character == '"'
-                && sequence.chars().nth(sequence.len() - 1).unwrap_or_default() != '\\'
-            {
+            if self.character == '\\' {
+                self.read_char();
+                if let Some(escaped_character) = ESCAPED_CHARACTERS
+                    .iter()
+                    .find(|(escaped, _)| *escaped == self.character)
+                {
+                    sequence.push(escaped_character.1);
+                    self.read_char();
+                } else {
+                    if self.character == 'u' {
+                        eprintln!("Unicode escape sequences are not supported yet");
+                    }
+                    sequence.push(self.character);
+                    self.read_char();
+                    return Token {
+                        token_type: TokenType::Invalid,
+                        value: sequence,
+                        line: self.line,
+                        start,
+                        end: self.position,
+                    };
+                }
+            } else if sequence.len() >= 1 && self.character == '"' {
                 sequence.push(self.character);
                 self.read_char();
                 break;
+            } else if self.character == EOF {
+                return Token {
+                    token_type: TokenType::Invalid,
+                    value: sequence,
+                    line: self.line,
+                    start,
+                    end: self.position,
+                };
+            } else {
+                sequence.push(self.character);
+                self.read_char();
             }
-            sequence.push(self.character);
-            self.read_char();
         }
         let string_value = String::from(&sequence[1..(sequence.len() - 1)]);
         Token {
@@ -191,22 +216,34 @@ impl Lexer {
             end: self.position,
         }
     }
+
+    fn read_plain_token(&mut self, token_type: TokenType) -> Token {
+        let token = Token {
+            token_type,
+            value: self.character.into(),
+            line: self.line,
+            start: self.position,
+            end: self.position + 1,
+        };
+        self.read_char();
+        token
+    }
 }
 
-impl Iterator for Lexer {
+impl Iterator for Tokenizer {
     type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.skip_whitespace();
 
         let result = match self.character {
-            '[' => Token::from_lexer(TokenType::BeginArray, &self),
-            ']' => Token::from_lexer(TokenType::EndArray, &self),
-            '{' => Token::from_lexer(TokenType::BeginObject, &self),
-            '}' => Token::from_lexer(TokenType::EndObject, &self),
-            ':' => Token::from_lexer(TokenType::NameSeparator, &self),
-            ',' => Token::from_lexer(TokenType::ValueSeparator, &self),
             EOF => return None,
+            '[' => self.read_plain_token(TokenType::BeginArray),
+            ']' => self.read_plain_token(TokenType::EndArray),
+            '{' => self.read_plain_token(TokenType::BeginObject),
+            '}' => self.read_plain_token(TokenType::EndObject),
+            ':' => self.read_plain_token(TokenType::NameSeparator),
+            ',' => self.read_plain_token(TokenType::ValueSeparator),
             '"' => self.read_string(),
             _ => {
                 if is_letter(self.character) {
@@ -214,12 +251,10 @@ impl Iterator for Lexer {
                 } else if is_number_character(self.character) {
                     self.read_number()
                 } else {
-                    Token::from_lexer(TokenType::Invalid, &self)
+                    self.read_plain_token(TokenType::Invalid)
                 }
             }
         };
-
-        self.read_char();
 
         Some(result)
     }
@@ -244,31 +279,84 @@ mod tests {
     use test_case::test_case;
 
     fn collect_tokens(json: &str) -> Vec<Token> {
-        let lexer = Lexer::new(String::from(json));
+        let lexer = Tokenizer::new(String::from(json));
         let tokens: Vec<Token> = lexer.collect();
         tokens
     }
 
-    #[test_case("-2073", -2073 ; "Simple example")]
-    #[test_case("-2e2", -200 ; "Exponent example")]
-    #[test_case("-2E2", -200 ; "Exponent upper case example")]
-    fn integer_token(json: &str, expected_number: i64) {
+    #[test_case("2073", Number::UnsingedInteger(2073) ; "Plain integer")]
+    #[test_case("2e2", Number::UnsingedInteger(200) ; "Integer with exponent notation")]
+    #[test_case("2E2", Number::UnsingedInteger(200) ; "Integer with upper case exponent notation")]
+    #[test_case("0.22e2", Number::UnsingedInteger(22) ; "Integer with weird exponent notation")]
+    #[test_case("-2073", Number::Integer(-2073) ; "Plain negative integer")]
+    #[test_case("-2e2", Number::Integer(-200) ; "Negative integer with exponent notation")]
+    #[test_case("-2E2", Number::Integer(-200) ; "Negative integer with upper case exponent notation")]
+    #[test_case("0.534", Number::Float(0.534) ; "Float: 0 < x < 1")]
+    #[test_case("234.534", Number::Float(234.534) ; "Float: x > 1")]
+    #[test_case("0.22e-2", Number::Float(0.0022) ; "Float with exponent notation")]
+    fn number_tokens(json: &str, expected_number: Number) {
         let tokens = collect_tokens(json);
-        assert_eq!(
-            TokenType::Number(Number::Integer(expected_number)),
-            tokens[0].token_type
-        )
+        assert_eq!(TokenType::Number(expected_number), tokens[0].token_type)
     }
 
-    #[test_case("2073", 2073 ; "Simple example")]
-    #[test_case("2e2", 200 ; "Exponent example")]
-    #[test_case("2E2", 200 ; "Exponent upper case example")]
-    fn unsinged_integer_token(json: &str, expected_number: u64) {
+    #[test_case(r#""Hello""#, "Hello" ; "Plain example")]
+    #[test_case(r#""Hellö""#, "Hellö" ; "String with non-ASCII")]
+    #[test_case(r#""\"""#, "\"" ; "String with escaped quote")]
+    #[test_case(r#""\\""#, "\\" ; "String with escaped reverse solidus")]
+    #[test_case(r#""\/""#, "/" ; "String with escaped solidus")]
+    #[test_case(r#""\b""#, "\u{8}" ; "String with backspace")]
+    #[test_case(r#""\f""#, "\u{C}" ; "String with form feed")]
+    #[test_case(r#""\n""#, "\n" ; "String with line feed")]
+    #[test_case(r#""\r""#, "\r" ; "String with carriage return")]
+    #[test_case(r#""\t""#, "\t" ; "String with tab")]
+    fn string_tokens(json: &str, expected_string: &str) {
         let tokens = collect_tokens(json);
         assert_eq!(
-            TokenType::Number(Number::UnsingedInteger(expected_number)),
-            tokens[0].token_type
-        )
+            tokens[0].token_type,
+            TokenType::String(String::from(expected_string))
+        );
+    }
+
+    #[test_case(r#""\u0022""# ; "String with unicode escape sequence")]
+    #[test_case(r#""\uD834\uDD1E""# ; "String with unicode escape sequence and surrogate pair")]
+    fn non_supported_string_tokens(json: &str) {
+        let tokens = collect_tokens(json);
+        assert_eq!(tokens[0].token_type, TokenType::Invalid);
+    }
+
+    #[test]
+    fn array_tokens() {
+        let tokens = collect_tokens("[5]");
+        assert_eq!(
+            Token {
+                token_type: TokenType::BeginArray,
+                value: String::from("["),
+                line: 0,
+                start: 0,
+                end: 1
+            },
+            tokens[0]
+        );
+        assert_eq!(
+            Token {
+                token_type: TokenType::Number(Number::UnsingedInteger(5)),
+                value: String::from("5"),
+                line: 0,
+                start: 1,
+                end: 2
+            },
+            tokens[1]
+        );
+        assert_eq!(
+            Token {
+                token_type: TokenType::EndArray,
+                value: String::from("]"),
+                line: 0,
+                start: 2,
+                end: 3,
+            },
+            tokens[2]
+        );
     }
 
     #[test]
@@ -286,13 +374,43 @@ mod tests {
         );
         assert_eq!(
             Token {
+                token_type: TokenType::String(String::from("key")),
+                value: String::from("\"key\""),
+                line: 0,
+                start: 2,
+                end: 7,
+            },
+            tokens[1]
+        );
+        assert_eq!(
+            Token {
+                token_type: TokenType::NameSeparator,
+                value: String::from(":"),
+                line: 0,
+                start: 7,
+                end: 8,
+            },
+            tokens[2]
+        );
+        assert_eq!(
+            Token {
+                token_type: TokenType::String(String::from("value")),
+                value: String::from("\"value\""),
+                line: 0,
+                start: 9,
+                end: 16,
+            },
+            tokens[3]
+        );
+        assert_eq!(
+            Token {
                 token_type: TokenType::EndObject,
                 value: String::from("}"),
                 line: 0,
                 start: 17,
                 end: 18
             },
-            tokens[tokens.len() - 1]
+            tokens[4]
         )
     }
 }

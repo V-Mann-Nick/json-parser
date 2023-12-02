@@ -1,5 +1,5 @@
 use clap::Parser;
-use json_parser::tokenizer::Lexer;
+use json_parser::tokenizer::Tokenizer;
 use std::{fs, process};
 
 #[derive(Parser)]
@@ -14,8 +14,8 @@ fn main() {
         eprintln!("Error reading file: {}", err);
         process::exit(1)
     });
-    let lexer = Lexer::new(file);
-    for token in lexer {
+    let tokenizer = Tokenizer::new(file);
+    for token in tokenizer {
         eprintln!("{:#?}", token);
     }
 }
