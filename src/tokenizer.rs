@@ -72,18 +72,19 @@ const ESCAPED_CHARACTERS: [(char, char); 8] = [
 pub struct Tokenizer {
     input: String,
     character: char,
+    characters: Vec<char>,
     position: usize,
     line: usize,
 }
 
 impl Tokenizer {
     pub fn new(input: String) -> Self {
-        let position: usize = 0;
-        let character = input.chars().nth(0).unwrap();
+        let characters = input.chars().collect::<Vec<char>>();
         Self {
             input,
-            character,
-            position,
+            character: characters[0],
+            characters,
+            position: 0,
             line: 0,
         }
     }
@@ -94,9 +95,9 @@ impl Tokenizer {
 
     fn read_char(&mut self) {
         let next_position = self.position + 1;
-        let next_character = self.input.chars().nth(next_position);
+        let next_character = self.characters.get(next_position);
         if let Some(next_character) = next_character {
-            self.character = next_character;
+            self.character = *next_character;
         } else {
             self.character = EOF;
         };
@@ -255,6 +256,8 @@ impl Tokenizer {
                 }
             }
         };
+
+        // println!("{:?}", result);
 
         Some(result)
     }

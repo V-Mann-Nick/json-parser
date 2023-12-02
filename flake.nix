@@ -45,8 +45,8 @@
       };
     };
     devShells.${system}.default = pkgs.mkShell {
-      name = "json-parser";
-      buildInputs = [toolchain];
+      name = pname;
+      buildInputs = [toolchain pkgs.cargo-flamegraph];
       RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
     };
     formatter.${system} = pkgs.alejandra;
