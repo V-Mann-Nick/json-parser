@@ -25,7 +25,25 @@
       "rust-src"
       "rust-analyzer"
     ];
+    rustPlatform = pkgs.makeRustPlatform {
+      cargo = toolchain;
+      rustc = toolchain;
+    };
+    cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+    pname = cargoToml.package.name;
+    version = cargoToml.package.version;
   in {
+    packages.${system} = rec {
+      default = rustPlatform.buildRustPackage {
+        inherit pname version;
+        src = ./.;
+        cargoLock.lockFile = ./Cargo.lock;
+      };
+      image = pkgs.dockerTools.buildImage {
+        name = default.pname;
+        config.Entrypoint = ["${default}/bin/huf"];
+      };
+    };
     devShells.${system}.default = pkgs.mkShell {
       name = "json-parser";
       buildInputs = [toolchain];

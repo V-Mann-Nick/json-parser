@@ -1,12 +1,12 @@
 #[derive(Debug, PartialEq, PartialOrd)]
-enum Number {
+pub enum Number {
     Integer(i64),
     UnsingedInteger(u64),
     Float(f64),
 }
 
 impl Number {
-    fn parse(sequence: &String) -> Option<Self> {
+    pub fn parse(sequence: &String) -> Option<Self> {
         if let Ok(integer) = sequence.parse::<u64>() {
             Some(Number::UnsingedInteger(integer))
         } else if let Ok(integer) = sequence.parse::<i64>() {
@@ -26,7 +26,7 @@ impl Number {
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
-enum TokenType {
+pub enum TokenType {
     BeginArray,
     EndArray,
 
@@ -49,9 +49,9 @@ enum TokenType {
 
 #[derive(Debug, PartialEq, PartialOrd)]
 pub struct Token {
-    token_type: TokenType,
+    pub token_type: TokenType,
     value: String,
-    line: usize,
+    pub line: usize,
     start: usize,
     end: usize,
 }
@@ -86,6 +86,10 @@ impl Tokenizer {
             position,
             line: 0,
         }
+    }
+
+    pub fn line(&self) -> usize {
+        return self.line;
     }
 
     fn read_char(&mut self) {
@@ -228,12 +232,8 @@ impl Tokenizer {
         self.read_char();
         token
     }
-}
 
-impl Iterator for Tokenizer {
-    type Item = Token;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    pub fn next_token(&mut self) -> Option<Token> {
         self.skip_whitespace();
 
         let result = match self.character {
@@ -257,6 +257,14 @@ impl Iterator for Tokenizer {
         };
 
         Some(result)
+    }
+}
+
+impl Iterator for Tokenizer {
+    type Item = Token;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        return self.next_token();
     }
 }
 
