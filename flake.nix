@@ -41,7 +41,7 @@
       };
       image = pkgs.dockerTools.buildImage {
         name = default.pname;
-        config.Entrypoint = ["${default}/bin/huf"];
+        config.Entrypoint = ["${default}/bin/qj"];
       };
     };
     devShells.${system}.default = pkgs.mkShell {
