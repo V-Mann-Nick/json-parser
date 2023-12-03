@@ -1,5 +1,5 @@
 use clap::Parser;
-use json_parser::{parser::Value, tokenizer::Tokenizer};
+use json_parser::parser::parse;
 use std::time::Instant;
 use std::{fs, process};
 
@@ -16,8 +16,7 @@ fn main() {
         eprintln!("Error reading file: {}", err);
         process::exit(1)
     });
-    let mut tokenizer = Tokenizer::new(file);
-    let value = Value::parse(&mut tokenizer).unwrap_or_else(|err| {
+    let value = parse(&file).unwrap_or_else(|err| {
         eprintln!("{}", err);
         process::exit(1);
     });

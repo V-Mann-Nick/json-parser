@@ -1,6 +1,5 @@
+use super::value::Value;
 use indexmap::IndexMap;
-
-use super::parser::Value;
 
 pub struct JsonStringifier<'v> {
     indent: u8,

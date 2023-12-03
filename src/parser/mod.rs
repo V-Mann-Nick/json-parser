@@ -1,29 +1,18 @@
+mod number;
+mod parse_error;
+mod stringifier;
+mod tokenizer;
+mod value;
+
 use indexmap::map::IndexMap;
-use std::fmt::Display;
+pub use parse_error::ParseError;
+use parse_error::ParseErrorArgs;
+use tokenizer::{Location, Token, TokenType, Tokenizer};
+pub use value::Value;
 
-use crate::{
-    stringifier::JsonStringifier,
-    tokenizer::{Location, Number, Token, TokenType, Tokenizer},
-};
-
-#[derive(Debug)]
-pub enum Value {
-    Null,
-    Bool(bool),
-    Number(Number),
-    String(String),
-    Object(IndexMap<String, Value>),
-    Array(Vec<Value>),
-}
-
-impl Value {
-    pub fn parse(tokenizer: &mut Tokenizer) -> Result<Self, ParseError> {
-        parse_value(tokenizer, None)
-    }
-
-    pub fn stringified(&self) -> JsonStringifier {
-        JsonStringifier::new(self)
-    }
+pub fn parse(json: &str) -> Result<Value, ParseError> {
+    let mut tokenizer = Tokenizer::new(json.to_string());
+    parse_value(&mut tokenizer, None)
 }
 
 fn parse_value(tokenizer: &mut Tokenizer, token: Option<Token>) -> Result<Value, ParseError> {
@@ -143,84 +132,6 @@ fn unwrap_token(tokenizer: &mut Tokenizer) -> Result<Token, ParseError> {
         column: tokenizer.column,
         length: 1,
     }));
-}
-
-#[derive(Debug)]
-pub struct ParseErrorArgs {
-    token: Token,
-    expected_tokens: Vec<String>,
-}
-
-impl ParseErrorArgs {
-    fn new(token: Token, expected_tokens: Vec<&str>) -> Self {
-        let expected_tokens = expected_tokens
-            .iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<String>>();
-        Self {
-            token,
-            expected_tokens,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum ParseError {
-    UnexpectedEndOfFile(Location),
-    UnexpectedToken(ParseErrorArgs),
-    InvalidToken(ParseErrorArgs),
-}
-
-impl Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnexpectedEndOfFile(location) => {
-                write!(f, "{}: Unexpected end of file", format_location(&location))
-            }
-            Self::UnexpectedToken(args) => {
-                write!(
-                    f,
-                    "{}: {}. Received token `{}`",
-                    format_location(&args.token.location),
-                    format_expected(&args.expected_tokens),
-                    args.token.value
-                )
-            }
-            Self::InvalidToken(args) => {
-                write!(
-                    f,
-                    "{}: {}. Received invalid token `{}`",
-                    format_location(&args.token.location),
-                    format_expected(&args.expected_tokens),
-                    args.token.value
-                )
-            }
-        }
-    }
-}
-
-fn format_expected(expected_tokens: &Vec<String>) -> String {
-    let expected_string =
-        expected_tokens
-            .iter()
-            .enumerate()
-            .fold(String::new(), |mut s, (idx, token)| {
-                if idx + 1 == expected_tokens.len() {
-                    s.push_str(" or ")
-                } else if idx > 0 {
-                    s.push_str(", ")
-                }
-                s.push_str(format!("`{}`", token).as_str());
-                s
-            });
-    format!("Expected {}", expected_string)
-}
-
-fn format_location(location: &Location) -> String {
-    format!(
-        ">> Parsing Error on line {} column {}",
-        location.line, location.column
-    )
 }
 
 #[cfg(test)]
