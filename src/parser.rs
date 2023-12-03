@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use indexmap::map::IndexMap;
 use std::fmt::Display;
 
 use crate::{
@@ -12,7 +12,7 @@ pub enum Value {
     Bool(bool),
     Number(Number),
     String(String),
-    Object(HashMap<String, Value>),
+    Object(IndexMap<String, Value>),
     Array(Vec<Value>),
 }
 
@@ -58,7 +58,7 @@ fn parse_value(tokenizer: &mut Tokenizer, token: Option<Token>) -> Result<Value,
 }
 
 fn parse_object(tokenizer: &mut Tokenizer) -> Result<Value, ParseError> {
-    let mut properties: HashMap<String, Value> = HashMap::new();
+    let mut properties: IndexMap<String, Value> = IndexMap::new();
     let mut had_comma = true;
     loop {
         let token = unwrap_token(tokenizer)?;

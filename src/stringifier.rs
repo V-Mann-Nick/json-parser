@@ -1,5 +1,6 @@
+use indexmap::IndexMap;
+
 use super::parser::Value;
-use std::collections::HashMap;
 
 pub struct JsonStringifier<'v> {
     indent: u8,
@@ -39,7 +40,7 @@ impl<'v> JsonStringifier<'v> {
         }
     }
 
-    fn object(&mut self, object: &HashMap<String, Value>, indent_level: u8) {
+    fn object(&mut self, object: &IndexMap<String, Value>, indent_level: u8) {
         self.result.push('{');
         if object.len() >= 1 {
             self.result.push('\n');
