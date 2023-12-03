@@ -21,7 +21,10 @@ fn main() {
         eprintln!("{}", err);
         process::exit(1);
     });
-    println!("{}", JsonStringifier::new(&value).indent(4).create());
-    let duration = start.elapsed();
-    println!("Took {:?}", duration);
+    println!("Parsed in {:?}", start.elapsed());
+    let start_stringify = Instant::now();
+    let stringified = JsonStringifier::new(&value).indent(4).create();
+    println!("{}", stringified);
+    println!("Stringified in {:?}", start_stringify.elapsed());
+    println!("Took {:?}", start.elapsed());
 }
