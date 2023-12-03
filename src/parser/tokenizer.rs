@@ -89,6 +89,14 @@ impl Tokenizer {
         };
     }
 
+    fn peak_char(&self) -> char {
+        if let Some(next_character) = self.characters.get(self.position + 1) {
+            *next_character
+        } else {
+            EOF
+        }
+    }
+
     fn advance_line(&mut self) {
         self.line = self.line + 1;
         self.column = 0;
@@ -150,7 +158,49 @@ impl Tokenizer {
         }
     }
 
-    // TODO: Handle unicode escape sequences
+    fn read_unicode_escape_sequence(&mut self) -> Option<char> {
+        let mut unicode_sequence = String::with_capacity(4);
+        for _ in 0..4 {
+            self.read_char();
+            if !is_hex_character(self.character) {
+                return None;
+            }
+            unicode_sequence.push(self.character);
+        }
+        self.read_char();
+        // Surrogate pair
+        if self.character == '\\' && self.peak_char() == 'u' {
+            self.read_char();
+            let mut surrogate_sequence = String::with_capacity(4);
+            for _ in 0..4 {
+                self.read_char();
+                if !is_hex_character(self.character) {
+                    return None;
+                }
+                surrogate_sequence.push(self.character);
+            }
+            let high_surrogate = u32::from_str_radix(&unicode_sequence, 16).ok();
+            let low_surrogate = u32::from_str_radix(&surrogate_sequence, 16).ok();
+            if high_surrogate.is_none() || low_surrogate.is_none() {
+                return None;
+            }
+            let code_point = 0x10000
+                + ((high_surrogate.unwrap() - 0xD800) << 10)
+                + (low_surrogate.unwrap() - 0xDC00);
+            let character = char::from_u32(code_point);
+            if character.is_some() {
+                self.read_char();
+            }
+            return character;
+        } else {
+            let code_point = u32::from_str_radix(&unicode_sequence, 16).ok();
+            if let Some(code_point) = code_point {
+                return char::from_u32(code_point);
+            }
+            return None;
+        }
+    }
+
     fn read_string(&mut self) -> Token {
         let column_start = self.column;
         let mut sequence = String::new();
@@ -163,10 +213,17 @@ impl Tokenizer {
                 {
                     sequence.push(escaped_character.1);
                     self.read_char();
-                } else {
-                    if self.character == 'u' {
-                        eprintln!("Unicode escape sequences are not supported yet");
+                } else if self.character == 'u' {
+                    if let Some(unicode_character) = self.read_unicode_escape_sequence() {
+                        sequence.push(unicode_character);
+                    } else {
+                        return Token {
+                            token_type: TokenType::Invalid,
+                            value: sequence,
+                            location: Location::from_tokenizer(&self, &column_start),
+                        };
                     }
+                } else {
                     sequence.push(self.character);
                     self.read_char();
                     return Token {
@@ -260,6 +317,12 @@ fn is_number_character(character: char) -> bool {
         || character == 'E'
 }
 
+fn is_hex_character(character: char) -> bool {
+    character >= '0' && character <= '9'
+        || character >= 'a' && character <= 'f'
+        || character >= 'A' && character <= 'F'
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,19 +359,14 @@ mod tests {
     #[test_case(r#""\n""#, "\n" ; "String with line feed")]
     #[test_case(r#""\r""#, "\r" ; "String with carriage return")]
     #[test_case(r#""\t""#, "\t" ; "String with tab")]
+    #[test_case(r#""\u0022""#, "\"" ; "String with unicode escape sequence")]
+    #[test_case(r#""\uD834\uDD1E""#, "𝄞" ; "String with unicode escape sequence and surrogate pair")]
     fn string_tokens(json: &str, expected_string: &str) {
         let tokens = collect_tokens(json);
         assert_eq!(
             tokens[0].token_type,
             TokenType::String(String::from(expected_string))
         );
-    }
-
-    #[test_case(r#""\u0022""# ; "String with unicode escape sequence")]
-    #[test_case(r#""\uD834\uDD1E""# ; "String with unicode escape sequence and surrogate pair")]
-    fn non_supported_string_tokens(json: &str) {
-        let tokens = collect_tokens(json);
-        assert_eq!(tokens[0].token_type, TokenType::Invalid);
     }
 
     #[test]
