@@ -1,8 +1,7 @@
 use clap::Parser;
-use json_parser::parser::{ParseError, Value};
-use json_parser::tokenizer::Tokenizer;
+use json_parser::{parser::Value, stringifier::JsonStringifier, tokenizer::Tokenizer};
+use std::time::Instant;
 use std::{fs, process};
-use std::time::{Duration, Instant};
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -10,7 +9,7 @@ struct Cli {
     json_file: String,
 }
 
-fn main() -> Result<(), ParseError> {
+fn main() {
     let start = Instant::now();
     let cli = Cli::parse();
     let file = fs::read_to_string(cli.json_file).unwrap_or_else(|err| {
@@ -18,9 +17,11 @@ fn main() -> Result<(), ParseError> {
         process::exit(1)
     });
     let mut tokenizer = Tokenizer::new(file);
-    let value = Value::parse(&mut tokenizer)?;
+    let value = Value::parse(&mut tokenizer).unwrap_or_else(|err| {
+        eprintln!("{}", err);
+        process::exit(1);
+    });
+    println!("{}", JsonStringifier::new(&value).indent(4).create());
     let duration = start.elapsed();
     println!("Took {:?}", duration);
-    // eprintln!("{:#?}", value);
-    Ok(())
 }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 
-use super::tokenizer::{Number, Token, TokenType, Tokenizer};
+use super::tokenizer::{Location, Number, Token, TokenType, Tokenizer};
 
 #[derive(Debug)]
 pub enum Value {
@@ -25,6 +25,7 @@ fn parse_value(tokenizer: &mut Tokenizer, token: Option<Token>) -> Result<Value,
     } else {
         unwrap_token(tokenizer)?
     };
+    let expected_tokens = vec!["null", "true", "false", "number", "string", "{", "["];
     let value = match token.token_type {
         TokenType::Null => Value::Null,
         TokenType::True => Value::Bool(true),
@@ -33,8 +34,18 @@ fn parse_value(tokenizer: &mut Tokenizer, token: Option<Token>) -> Result<Value,
         TokenType::String(string) => Value::String(string),
         TokenType::BeginObject => parse_object(tokenizer)?,
         TokenType::BeginArray => parse_array(tokenizer)?,
-        TokenType::Invalid => return Err(ParseError::InvalidToken(token)),
-        _ => return Err(ParseError::UnexpectedToken(token)),
+        TokenType::Invalid => {
+            return Err(ParseError::InvalidToken(ParseErrorArgs::new(
+                token,
+                expected_tokens,
+            )))
+        }
+        _ => {
+            return Err(ParseError::UnexpectedToken(ParseErrorArgs::new(
+                token,
+                expected_tokens,
+            )))
+        }
     };
     Ok(value)
 }
@@ -54,7 +65,12 @@ fn parse_object(tokenizer: &mut Tokenizer) -> Result<Value, ParseError> {
             match token.token_type {
                 TokenType::EndObject => return Ok(Value::Object(properties)),
                 TokenType::ValueSeparator => {}
-                _ => return Err(ParseError::UnexpectedToken(token)),
+                _ => {
+                    return Err(ParseError::UnexpectedToken(ParseErrorArgs::new(
+                        token,
+                        vec!["}", ","],
+                    )))
+                }
             }
         }
         had_comma = !had_comma;
@@ -64,12 +80,22 @@ fn parse_object(tokenizer: &mut Tokenizer) -> Result<Value, ParseError> {
 fn parse_property(tokenizer: &mut Tokenizer, token: Token) -> Result<(String, Value), ParseError> {
     let key = match token.token_type {
         TokenType::String(key) => key,
-        _ => return Err(ParseError::UnexpectedToken(token)),
+        _ => {
+            return Err(ParseError::UnexpectedToken(ParseErrorArgs::new(
+                token,
+                vec!["string"],
+            )))
+        }
     };
     let token = unwrap_token(tokenizer)?;
     match token.token_type {
         TokenType::NameSeparator => {}
-        _ => return Err(ParseError::UnexpectedToken(token)),
+        _ => {
+            return Err(ParseError::UnexpectedToken(ParseErrorArgs::new(
+                token,
+                vec![":"],
+            )))
+        }
     }
     let value = parse_value(tokenizer, None)?;
     Ok((key, value))
@@ -89,7 +115,12 @@ fn parse_array(tokenizer: &mut Tokenizer) -> Result<Value, ParseError> {
             match token.token_type {
                 TokenType::EndArray => return Ok(Value::Array(values)),
                 TokenType::ValueSeparator => {}
-                _ => return Err(ParseError::UnexpectedToken(token)),
+                _ => {
+                    return Err(ParseError::UnexpectedToken(ParseErrorArgs::new(
+                        token,
+                        vec!["]", ","],
+                    )))
+                }
             }
         }
         had_comma = !had_comma;
@@ -100,36 +131,92 @@ fn unwrap_token(tokenizer: &mut Tokenizer) -> Result<Token, ParseError> {
     if let Some(token) = tokenizer.next_token() {
         return Ok(token);
     };
-    return Err(ParseError::UnexpectedEndOfFile(tokenizer.line()));
+    return Err(ParseError::UnexpectedEndOfFile(Location {
+        line: tokenizer.line,
+        column: tokenizer.column,
+        length: 1,
+    }));
+}
+
+#[derive(Debug)]
+pub struct ParseErrorArgs {
+    token: Token,
+    expected_tokens: Vec<String>,
+}
+
+impl ParseErrorArgs {
+    fn new(token: Token, expected_tokens: Vec<&str>) -> Self {
+        let expected_tokens = expected_tokens
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>();
+        Self {
+            token,
+            expected_tokens,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub enum ParseError {
-    UnexpectedEndOfFile(usize),
-    UnexpectedToken(Token),
-    InvalidToken(Token),
+    UnexpectedEndOfFile(Location),
+    UnexpectedToken(ParseErrorArgs),
+    InvalidToken(ParseErrorArgs),
 }
 
 impl Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UnexpectedEndOfFile(line) => {
-                write!(f, "Parsing Error on line {}: Unexpected end of file", line)
+            Self::UnexpectedEndOfFile(location) => {
+                write!(f, "{}: Unexpected end of file", format_location(&location))
             }
-            Self::UnexpectedToken(token) => {
+            Self::UnexpectedToken(args) => {
                 write!(
                     f,
-                    "Parsing Error on line {}: Unexpected token {:?}",
-                    token.line, token
+                    "{}: {}. Received token `{}`",
+                    format_location(&args.token.location),
+                    format_expected(&args.expected_tokens),
+                    args.token.value
                 )
             }
-            Self::InvalidToken(token) => {
+            Self::InvalidToken(args) => {
                 write!(
                     f,
-                    "Parsing Error on line {}: Invalid token {:?}",
-                    token.line, token
+                    "{}: {}. Received invalid token `{}`",
+                    format_location(&args.token.location),
+                    format_expected(&args.expected_tokens),
+                    args.token.value
                 )
             }
         }
     }
+}
+
+fn format_expected(expected_tokens: &Vec<String>) -> String {
+    let expected_string =
+        expected_tokens
+            .iter()
+            .enumerate()
+            .fold(String::new(), |mut s, (idx, token)| {
+                if idx + 1 == expected_tokens.len() {
+                    s.push_str(" or ")
+                } else if idx > 0 {
+                    s.push_str(", ")
+                }
+                s.push_str(format!("`{}`", token).as_str());
+                s
+            });
+    format!("Expected {}", expected_string)
+}
+
+fn format_location(location: &Location) -> String {
+    format!(
+        ">> Parsing Error on line {} column {}",
+        location.line, location.column
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 }

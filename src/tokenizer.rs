@@ -23,6 +23,14 @@ impl Number {
             None
         }
     }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            Self::Integer(integer) => integer.to_string(),
+            Self::UnsingedInteger(integer) => integer.to_string(),
+            Self::Float(float) => float.to_string(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
@@ -41,19 +49,33 @@ pub enum TokenType {
     Null,
 
     Number(Number),
-    // Pass by reference? -> Learn lifetime
     String(String),
 
     Invalid,
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
+pub struct Location {
+    pub line: usize,
+    pub column: usize,
+    pub length: usize,
+}
+
+impl Location {
+    fn from_tokenizer(tokenizer: &Tokenizer, column_start: &usize) -> Self {
+        Self {
+            line: tokenizer.line,
+            column: *column_start,
+            length: tokenizer.column - *column_start,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, PartialOrd)]
 pub struct Token {
     pub token_type: TokenType,
-    value: String,
-    pub line: usize,
-    start: usize,
-    end: usize,
+    pub value: String,
+    pub location: Location,
 }
 
 const EOF: char = '\u{0}';
@@ -70,42 +92,39 @@ const ESCAPED_CHARACTERS: [(char, char); 8] = [
 ];
 
 pub struct Tokenizer {
-    input: String,
     character: char,
     characters: Vec<char>,
-    position: usize,
-    line: usize,
+    pub position: usize,
+    pub line: usize,
+    pub column: usize,
 }
 
 impl Tokenizer {
     pub fn new(input: String) -> Self {
         let characters = input.chars().collect::<Vec<char>>();
         Self {
-            input,
             character: characters[0],
             characters,
             position: 0,
-            line: 0,
+            line: 1,
+            column: 1,
         }
     }
 
-    pub fn line(&self) -> usize {
-        return self.line;
-    }
-
     fn read_char(&mut self) {
-        let next_position = self.position + 1;
-        let next_character = self.characters.get(next_position);
+        self.position = self.position + 1;
+        self.column = self.column + 1;
+        let next_character = self.characters.get(self.position);
         if let Some(next_character) = next_character {
             self.character = *next_character;
         } else {
             self.character = EOF;
         };
-        self.position = next_position;
     }
 
     fn advance_line(&mut self) {
         self.line = self.line + 1;
+        self.column = 0;
     }
 
     fn skip_whitespace(&mut self) {
@@ -122,7 +141,7 @@ impl Tokenizer {
     }
 
     fn read_sequence(&mut self, is_valid: fn(character: char) -> bool) -> (usize, String) {
-        let start = self.position;
+        let column_start = self.column;
         let mut sequence = String::new();
         loop {
             if !is_valid(self.character) {
@@ -131,11 +150,11 @@ impl Tokenizer {
             sequence.push(self.character);
             self.read_char();
         }
-        (start, sequence)
+        (column_start, sequence)
     }
 
     fn read_literal(&mut self) -> Token {
-        let (start, literal) = self.read_sequence(is_letter);
+        let (column_start, literal) = self.read_sequence(is_letter);
         let token_type = match literal.as_str() {
             "true" => TokenType::True,
             "false" => TokenType::False,
@@ -145,14 +164,12 @@ impl Tokenizer {
         Token {
             token_type,
             value: literal,
-            line: self.line,
-            start,
-            end: self.position,
+            location: Location::from_tokenizer(&self, &column_start),
         }
     }
 
     fn read_number(&mut self) -> Token {
-        let (start, sequence) = self.read_sequence(is_number_character);
+        let (column_start, sequence) = self.read_sequence(is_number_character);
         let parsed_value = Number::parse(&sequence);
         let token_type = if let Some(parsed_value) = parsed_value {
             TokenType::Number(parsed_value)
@@ -162,15 +179,13 @@ impl Tokenizer {
         Token {
             token_type,
             value: sequence,
-            line: self.line,
-            start,
-            end: self.position,
+            location: Location::from_tokenizer(&self, &column_start),
         }
     }
 
     // TODO: Handle unicode escape sequences
     fn read_string(&mut self) -> Token {
-        let start = self.position;
+        let column_start = self.column;
         let mut sequence = String::new();
         loop {
             if self.character == '\\' {
@@ -190,9 +205,7 @@ impl Tokenizer {
                     return Token {
                         token_type: TokenType::Invalid,
                         value: sequence,
-                        line: self.line,
-                        start,
-                        end: self.position,
+                        location: Location::from_tokenizer(&self, &column_start),
                     };
                 }
             } else if sequence.len() >= 1 && self.character == '"' {
@@ -203,9 +216,7 @@ impl Tokenizer {
                 return Token {
                     token_type: TokenType::Invalid,
                     value: sequence,
-                    line: self.line,
-                    start,
-                    end: self.position,
+                    location: Location::from_tokenizer(&self, &column_start),
                 };
             } else {
                 sequence.push(self.character);
@@ -216,9 +227,7 @@ impl Tokenizer {
         Token {
             token_type: TokenType::String(string_value),
             value: sequence,
-            line: self.line,
-            start,
-            end: self.position,
+            location: Location::from_tokenizer(&self, &column_start),
         }
     }
 
@@ -226,9 +235,11 @@ impl Tokenizer {
         let token = Token {
             token_type,
             value: self.character.into(),
-            line: self.line,
-            start: self.position,
-            end: self.position + 1,
+            location: Location {
+                line: self.line,
+                column: self.column,
+                length: 1,
+            },
         };
         self.read_char();
         token
@@ -256,8 +267,6 @@ impl Tokenizer {
                 }
             }
         };
-
-        // println!("{:?}", result);
 
         Some(result)
     }
@@ -342,9 +351,11 @@ mod tests {
             Token {
                 token_type: TokenType::BeginArray,
                 value: String::from("["),
-                line: 0,
-                start: 0,
-                end: 1
+                location: Location {
+                    line: 1,
+                    column: 1,
+                    length: 1,
+                }
             },
             tokens[0]
         );
@@ -352,9 +363,11 @@ mod tests {
             Token {
                 token_type: TokenType::Number(Number::UnsingedInteger(5)),
                 value: String::from("5"),
-                line: 0,
-                start: 1,
-                end: 2
+                location: Location {
+                    line: 1,
+                    column: 2,
+                    length: 1,
+                }
             },
             tokens[1]
         );
@@ -362,9 +375,11 @@ mod tests {
             Token {
                 token_type: TokenType::EndArray,
                 value: String::from("]"),
-                line: 0,
-                start: 2,
-                end: 3,
+                location: Location {
+                    line: 1,
+                    column: 3,
+                    length: 1,
+                }
             },
             tokens[2]
         );
@@ -377,9 +392,11 @@ mod tests {
             Token {
                 token_type: TokenType::BeginObject,
                 value: String::from("{"),
-                line: 0,
-                start: 0,
-                end: 1
+                location: Location {
+                    line: 1,
+                    column: 1,
+                    length: 1,
+                }
             },
             tokens[0]
         );
@@ -387,9 +404,11 @@ mod tests {
             Token {
                 token_type: TokenType::String(String::from("key")),
                 value: String::from("\"key\""),
-                line: 0,
-                start: 2,
-                end: 7,
+                location: Location {
+                    line: 1,
+                    column: 3,
+                    length: 5,
+                }
             },
             tokens[1]
         );
@@ -397,9 +416,11 @@ mod tests {
             Token {
                 token_type: TokenType::NameSeparator,
                 value: String::from(":"),
-                line: 0,
-                start: 7,
-                end: 8,
+                location: Location {
+                    line: 1,
+                    column: 8,
+                    length: 1,
+                }
             },
             tokens[2]
         );
@@ -407,9 +428,11 @@ mod tests {
             Token {
                 token_type: TokenType::String(String::from("value")),
                 value: String::from("\"value\""),
-                line: 0,
-                start: 9,
-                end: 16,
+                location: Location {
+                    line: 1,
+                    column: 10,
+                    length: 7,
+                }
             },
             tokens[3]
         );
@@ -417,9 +440,11 @@ mod tests {
             Token {
                 token_type: TokenType::EndObject,
                 value: String::from("}"),
-                line: 0,
-                start: 17,
-                end: 18
+                location: Location {
+                    line: 1,
+                    column: 18,
+                    length: 1,
+                }
             },
             tokens[4]
         )
