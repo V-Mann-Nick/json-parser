@@ -1,5 +1,5 @@
 use clap::Parser;
-use json_parser::{parser::Value, stringifier::JsonStringifier, tokenizer::Tokenizer};
+use json_parser::{parser::Value, tokenizer::Tokenizer};
 use std::time::Instant;
 use std::{fs, process};
 
@@ -23,7 +23,7 @@ fn main() {
     });
     println!("Parsed in {:?}", start.elapsed());
     let start_stringify = Instant::now();
-    let stringified = JsonStringifier::new(&value).indent(4).create();
+    let stringified = value.stringified().create();
     println!("{}", stringified);
     println!("Stringified in {:?}", start_stringify.elapsed());
     println!("Took {:?}", start.elapsed());

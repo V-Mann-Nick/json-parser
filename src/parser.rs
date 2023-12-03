@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 
-use super::tokenizer::{Location, Number, Token, TokenType, Tokenizer};
+use crate::{
+    stringifier::JsonStringifier,
+    tokenizer::{Location, Number, Token, TokenType, Tokenizer},
+};
 
 #[derive(Debug)]
 pub enum Value {
@@ -16,6 +19,10 @@ pub enum Value {
 impl Value {
     pub fn parse(tokenizer: &mut Tokenizer) -> Result<Self, ParseError> {
         parse_value(tokenizer, None)
+    }
+
+    pub fn stringified(&self) -> JsonStringifier {
+        JsonStringifier::new(self)
     }
 }
 
