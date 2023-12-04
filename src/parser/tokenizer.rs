@@ -47,17 +47,6 @@ pub struct Token {
 
 const EOF: char = '\u{0}';
 
-const ESCAPED_CHARACTERS: [(char, char); 8] = [
-    ('"', '"'),
-    ('\\', '\\'),
-    ('/', '/'),
-    ('b', '\u{8}'),
-    ('f', '\u{c}'),
-    ('n', '\n'),
-    ('r', '\r'),
-    ('t', '\t'),
-];
-
 pub struct Tokenizer {
     character: char,
     characters: Vec<char>,
@@ -89,8 +78,14 @@ impl Tokenizer {
         };
     }
 
-    fn peak_char(&self) -> char {
-        if let Some(next_character) = self.characters.get(self.position + 1) {
+    fn read_chars(&mut self, number: usize) {
+        for _ in 0..number {
+            self.read_char();
+        }
+    }
+
+    fn peak_char(&self, offset: usize) -> char {
+        if let Some(next_character) = self.characters.get(self.position + offset) {
             *next_character
         } else {
             EOF
@@ -158,99 +153,91 @@ impl Tokenizer {
         }
     }
 
-    fn read_unicode_escape_sequence(&mut self) -> Option<char> {
-        let mut unicode_sequence = String::with_capacity(4);
+    fn read_hex_sequence(&mut self) -> Option<String> {
+        let mut sequence = String::with_capacity(4);
         for _ in 0..4 {
             self.read_char();
             if !is_hex_character(self.character) {
                 return None;
             }
-            unicode_sequence.push(self.character);
+            sequence.push(self.character);
         }
-        self.read_char();
-        // Surrogate pair
-        if self.character == '\\' && self.peak_char() == 'u' {
-            self.read_char();
-            let mut surrogate_sequence = String::with_capacity(4);
-            for _ in 0..4 {
-                self.read_char();
-                if !is_hex_character(self.character) {
-                    return None;
-                }
-                surrogate_sequence.push(self.character);
-            }
-            let high_surrogate = u32::from_str_radix(&unicode_sequence, 16).ok();
-            let low_surrogate = u32::from_str_radix(&surrogate_sequence, 16).ok();
-            if high_surrogate.is_none() || low_surrogate.is_none() {
-                return None;
-            }
-            let code_point = 0x10000
-                + ((high_surrogate.unwrap() - 0xD800) << 10)
-                + (low_surrogate.unwrap() - 0xDC00);
-            let character = char::from_u32(code_point);
-            if character.is_some() {
-                self.read_char();
-            }
-            return character;
-        } else {
-            let code_point = u32::from_str_radix(&unicode_sequence, 16).ok();
-            if let Some(code_point) = code_point {
-                return char::from_u32(code_point);
-            }
+        Some(sequence)
+    }
+
+    fn read_unicode_escape_sequence(&mut self) -> Option<char> {
+        let Some(unicode_sequence) = self.read_hex_sequence() else {
             return None;
+        };
+        let codepoint = if self.peak_char(1) == '\\' && self.peak_char(2) == 'u' {
+            self.read_chars(2);
+            let Some(surrogate_sequence) = self.read_hex_sequence() else {
+                return None;
+            };
+            let Some(high_surrogate) = u32::from_str_radix(&unicode_sequence, 16).ok() else {
+                return None;
+            };
+            let Some(low_surrogate) = u32::from_str_radix(&surrogate_sequence, 16).ok() else {
+                return None;
+            };
+            let code_point = 0x10000 + ((high_surrogate - 0xD800) << 10) + (low_surrogate - 0xDC00);
+            code_point
+        } else {
+            let Some(code_point) = u32::from_str_radix(&unicode_sequence, 16).ok() else {
+                return None;
+            };
+            code_point
+        };
+        char::from_u32(codepoint)
+    }
+
+    fn read_escape_sequence(&mut self) -> Option<char> {
+        self.read_char();
+        match self.character {
+            '"' => Some('"'),
+            '\\' => Some('\\'),
+            '/' => Some('/'),
+            'b' => Some('\u{8}'),
+            'f' => Some('\u{c}'),
+            'n' => Some('\n'),
+            'r' => Some('\r'),
+            't' => Some('\t'),
+            'u' => self.read_unicode_escape_sequence(),
+            _ => None,
         }
     }
 
     fn read_string(&mut self) -> Token {
+        let position_start = self.position;
         let column_start = self.column;
-        let mut sequence = String::new();
+        let mut sequence = Vec::<char>::new();
         loop {
-            if self.character == '\\' {
-                self.read_char();
-                if let Some(escaped_character) = ESCAPED_CHARACTERS
-                    .iter()
-                    .find(|(escaped, _)| *escaped == self.character)
-                {
-                    sequence.push(escaped_character.1);
-                    self.read_char();
-                } else if self.character == 'u' {
-                    if let Some(unicode_character) = self.read_unicode_escape_sequence() {
-                        sequence.push(unicode_character);
-                    } else {
-                        return Token {
-                            token_type: TokenType::Invalid,
-                            value: sequence,
-                            location: Location::from_tokenizer(&self, &column_start),
-                        };
-                    }
-                } else {
-                    sequence.push(self.character);
-                    self.read_char();
-                    return Token {
-                        token_type: TokenType::Invalid,
-                        value: sequence,
-                        location: Location::from_tokenizer(&self, &column_start),
-                    };
-                }
-            } else if sequence.len() >= 1 && self.character == '"' {
-                sequence.push(self.character);
-                self.read_char();
-                break;
-            } else if self.character == EOF {
+            let should_break = sequence.len() >= 1 && self.character == '"';
+            let maybe_character = match self.character {
+                '\\' => self.read_escape_sequence(),
+                EOF => None,
+                _ => Some(self.character),
+            };
+            let Some(character) = maybe_character else {
                 return Token {
                     token_type: TokenType::Invalid,
-                    value: sequence,
+                    value: sequence.iter().collect(),
                     location: Location::from_tokenizer(&self, &column_start),
                 };
-            } else {
-                sequence.push(self.character);
-                self.read_char();
+            };
+            sequence.push(character);
+            self.read_char();
+            if should_break {
+                break;
             }
         }
-        let string_value = String::from(&sequence[1..(sequence.len() - 1)]);
+        let string_value = sequence[1..(sequence.len() - 1)].iter().collect();
+        let original_sequence = self.characters[position_start..self.position]
+            .iter()
+            .collect();
         Token {
             token_type: TokenType::String(string_value),
-            value: sequence,
+            value: original_sequence,
             location: Location::from_tokenizer(&self, &column_start),
         }
     }
