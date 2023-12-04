@@ -12,7 +12,7 @@ It features:
 
 ## How to run
 
-This project uses the [nix package manager](https://github.com/NixOS/nix) using [nix flakes](https://nix.dev/concepts/flakes.html) for providing the rust toolchain and building packages, as well as [direnv](https://direnv.net/) for automatic shell loading.
+This project uses the [nix package manager](https://github.com/NixOS/nix) using [nix flakes](https://nix.dev/concepts/flakes.html) for providing the rust toolchain and building packages, as well as [direnv](https://direnv.net/) and [nix-direnv](https://github.com/nix-community/nix-direnv) for automatic shell loading.
 
 ```sh
 git clone git@github.com:V-Mann-Nick/json-parser.git
@@ -32,7 +32,7 @@ nix build
 nix profile install .
 
 # Build OCI image
-nix build .#image
+nix build '.#image'
 ```
 
 ## References
