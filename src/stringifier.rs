@@ -1,4 +1,4 @@
-use super::value::Value;
+use super::parser::Value;
 use indexmap::IndexMap;
 
 pub struct JsonStringifier<'v> {

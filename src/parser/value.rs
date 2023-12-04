@@ -1,4 +1,4 @@
-use super::{number::Number, stringifier::JsonStringifier};
+use super::{super::stringifier::JsonStringifier, number::Number};
 use indexmap::map::IndexMap;
 
 #[derive(Debug)]
