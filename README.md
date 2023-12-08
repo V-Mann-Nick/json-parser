@@ -1,6 +1,6 @@
 # JSON Parser in Rust
 
-JSON parser compliant with the JSON specification ([RFC 7159](https://datatracker.ietf.org/doc/html/rfc7159)).
+JSON parser compliant with the JSON specification ([RFC 8259](https://datatracker.ietf.org/doc/html/rfc8259)).
 
 It features:
 
