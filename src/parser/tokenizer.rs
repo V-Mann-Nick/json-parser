@@ -337,6 +337,7 @@ mod tests {
     #[test_case(r#""\r""#, "\r" ; "String with carriage return")]
     #[test_case(r#""\t""#, "\t" ; "String with tab")]
     #[test_case(r#""\u0022""#, "\"" ; "String with unicode escape sequence")]
+    #[test_case(r#""\u00FC\u00F6""#, "üö" ; "String with two unicode escape sequences")]
     #[test_case(r#""\uD834\uDD1E""#, "𝄞" ; "String with unicode escape sequence and surrogate pair")]
     fn string_tokens(json: &str, expected_string: &str) {
         let tokens = collect_tokens(json);
