@@ -166,26 +166,16 @@ impl Tokenizer {
     }
 
     fn read_unicode_escape_sequence(&mut self) -> Option<char> {
-        let Some(unicode_sequence) = self.read_hex_sequence() else {
-            return None;
-        };
+        let unicode_sequence = self.read_hex_sequence()?;
         let codepoint = if self.peak_char(1) == '\\' && self.peak_char(2) == 'u' {
             self.read_chars(2);
-            let Some(surrogate_sequence) = self.read_hex_sequence() else {
-                return None;
-            };
-            let Some(high_surrogate) = u32::from_str_radix(&unicode_sequence, 16).ok() else {
-                return None;
-            };
-            let Some(low_surrogate) = u32::from_str_radix(&surrogate_sequence, 16).ok() else {
-                return None;
-            };
+            let surrogate_sequence = self.read_hex_sequence()?;
+            let high_surrogate = u32::from_str_radix(&unicode_sequence, 16).ok()?;
+            let low_surrogate = u32::from_str_radix(&surrogate_sequence, 16).ok()?;
             let code_point = 0x10000 + ((high_surrogate - 0xD800) << 10) + (low_surrogate - 0xDC00);
             code_point
         } else {
-            let Some(code_point) = u32::from_str_radix(&unicode_sequence, 16).ok() else {
-                return None;
-            };
+            let code_point = u32::from_str_radix(&unicode_sequence, 16).ok()?;
             code_point
         };
         char::from_u32(codepoint)
